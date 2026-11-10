@@ -1,116 +1,221 @@
 # ST7789V Display Driver for STM32
 
-This repository contains two C libraries for ST7789 and ST7789V display
-controllers on a 4-wire SPI bus. It also contains an example project for
-the NUCLEO-H753ZI board.
+This repository contains two C libraries that draw on a display with an
+ST7789 or ST7789V controller. The display connects to an STM32 MCU through
+a 4-wire SPI bus.
 
-| Library                            | Use it for                                  |
-|------------------------------------|---------------------------------------------|
-| [`Lib/st7789`](Lib/st7789)         | The maximum speed on an STM32H7             |
-| [`Lib/st7789_hal`](Lib/st7789_hal) | All the STM32 families that have the HAL    |
+With each library, you can do these tasks:
+
+- Draw pixels, lines, rectangles, circles and triangles.
+- Draw text with a 5x7 font, in different dimensions.
+- Draw RGB565 images.
+- Turn the image in four rotations.
+- Control the backlight, sleep mode and color inversion.
+
+The libraries are applicable to panels of 240x320, 240x240 and 135x240
+pixels.
 
 ## Contents
 
-- [Properties](#properties)
-- [Which library to use](#which-library-to-use)
+- [Select a library](#select-a-library)
+- [How to start with the HAL library](#how-to-start-with-the-hal-library)
+- [How to start with the fast library](#how-to-start-with-the-fast-library)
+- [Example project for the NUCLEO-H753ZI](#example-project-for-the-nucleo-h753zi)
 - [Speed](#speed)
-- [Hardware](#hardware)
-- [How to compile the example project](#how-to-compile-the-example-project)
-- [How to add a library to your project](#how-to-add-a-library-to-your-project)
 - [Tests](#tests)
-- [Structure of the repository](#structure-of-the-repository)
-- [Simplified Technical English](#simplified-technical-english)
+- [Folders](#folders)
 - [License](#license)
 
-## Properties
+## Select a library
 
-The two libraries have these properties:
+If you are not sure, use the HAL library. It operates on all the STM32
+families, and it is easy to add to a project from STM32CubeMX.
 
-- They draw pixels, lines, rectangles, circles, triangles, RGB565 images
-  and 5x7 text.
-- They clip each shape at the edges of the screen.
-- They have four rotations, sleep mode, color inversion and a backlight
-  function.
-- They are applicable to panels of 240x320, 240x240 and 135x240 pixels.
-- They can use the DMA for long transfers.
-- Each library folder is a CMake target.
-- C++ code can include the header files.
+| Your project                                             | Library to use                                   |
+|----------------------------------------------------------|--------------------------------------------------|
+| An STM32F0, F1, F4, G0, G4, L4, U5 or a different family | HAL library ([`Lib/st7789_hal`](Lib/st7789_hal)) |
+| An STM32H7, and the HAL library is sufficiently fast     | HAL library ([`Lib/st7789_hal`](Lib/st7789_hal)) |
+| An STM32H7, and you must have the maximum speed          | Fast library ([`Lib/st7789`](Lib/st7789))        |
+| Two or more panels on one MCU                            | HAL library ([`Lib/st7789_hal`](Lib/st7789_hal)) |
+| A framebuffer, scrolling or a change of the refresh rate | Fast library ([`Lib/st7789`](Lib/st7789))        |
 
-## Which library to use
+This table shows the differences between the two libraries:
 
-| Property                | `Lib/st7789`                                    | `Lib/st7789_hal`                              |
-|-------------------------|-------------------------------------------------|-----------------------------------------------|
-| MCUs                    | STM32H7. For other MCUs, you must write a port. | All the STM32 families that have the HAL      |
-| Hardware access         | The registers of SPI1 and DMA1 Stream 0         | Only HAL functions                            |
-| Transfers               | Background transfers                            | Each function returns after its transfers end |
-| Framebuffer mode        | Yes (150 KB of RAM)                             | No                                            |
-| Two or more panels      | No                                              | Yes. Each panel has a handle.                 |
-| Scrolling, refresh rate | Yes                                             | No                                            |
-| Interrupt handlers      | In the port file                                | None. STM32CubeMX supplies them.              |
-| Panel configuration     | Macros, before you compile the library          | A struct, while the application operates      |
+| Property                             | HAL library (`Lib/st7789_hal`)                               | Fast library (`Lib/st7789`)                                            |
+|--------------------------------------|--------------------------------------------------------------|------------------------------------------------------------------------|
+| MCUs                                 | All the STM32 families that have the HAL                     | STM32H7 only (SPI1 and DMA1 Stream 0)                                  |
+| Necessary changes in your project    | None. You give your SPI handle and your pins to the library. | The linker script and the interrupt handlers of SPI1 and DMA1 Stream 0 |
+| Time when a drawing function returns | After the panel received all the pixels                      | Immediately. The DMA sends the pixels in the background.               |
+| Number of panels for one MCU         | One or more                                                  | One                                                                    |
+| Location of the panel dimensions     | A struct in your code                                        | Macros, before you compile                                             |
+| DMA                                  | Optional                                                     | Necessary                                                              |
+| Framebuffer mode                     | No                                                           | Yes (150 KB of RAM)                                                    |
+| Scrolling and refresh rate functions | No                                                           | Yes                                                                    |
+| Speed                                | Refer to [Speed](#speed)                                     | Refer to [Speed](#speed)                                               |
 
-Each library has a README file with the full instructions:
+## How to start with the HAL library
 
-- [`Lib/st7789/README.md`](Lib/st7789/README.md)
-- [`Lib/st7789_hal/README.md`](Lib/st7789_hal/README.md)
+### 1. Connect the display
 
-## Speed
+Connect the pins of the display module to your board:
 
-One benchmark ([`Core/Src/lcd_bench.c`](Core/Src/lcd_bench.c)) does the same
-operations with each library. The table shows the results on the
-NUCLEO-H753ZI board at an SCK of 100 MHz. Each value is the number of
-operations in one second.
+| Pin on the display module | Connect it to            | Is it necessary?                            |
+|---------------------------|--------------------------|---------------------------------------------|
+| VCC                       | 3.3 V                    | Yes                                         |
+| GND                       | GND                      | Yes                                         |
+| DIN (also MOSI or SDA)    | The MOSI pin of your SPI | Yes                                         |
+| CLK (also SCK or SCL)     | The SCK pin of your SPI  | Yes                                         |
+| DC                        | An output pin            | Yes                                         |
+| CS                        | An output pin            | No. As an alternative, connect it to GND.   |
+| RST                       | An output pin            | No. The library can send a reset command.   |
+| BL                        | An output pin            | No. As an alternative, connect it to 3.3 V. |
 
-| Scene       | One operation               | `st7789` | `st7789_hal` with DMA | `st7789_hal` without DMA |
-|-------------|-----------------------------|---------:|----------------------:|-------------------------:|
-| FILL        | Fill the full screen        |     81.4 |                  80.1 |                     34.2 |
-| RECTS       | Fill one rectangle          |     3055 |                  2814 |                     1240 |
-| LINES       | Draw one line               |     5154 |                  1335 |                     1348 |
-| CIRCLES     | Draw one circle             |     3698 |                  1312 |                     1080 |
-| TRIANGLES   | Draw one triangle           |     1064 |                   396 |                      343 |
-| TEXT        | Draw one string             |     1618 |                  1283 |                      625 |
-| TRANSPARENT | Draw one transparent string |     4169 |                  1068 |                     1060 |
-| IMAGE       | Draw one full screen image  |     80.4 |                  66.9 |                     31.6 |
+### 2. Set the SPI in STM32CubeMX
 
-For large areas, the two libraries have almost the same speed, because the
-SPI is the limit. For small shapes, `Lib/st7789` is approximately three to
-four times faster.
+| Parameter in STM32CubeMX | Value                                    |
+|--------------------------|------------------------------------------|
+| Mode                     | Transmit Only Master                     |
+| Hardware NSS Signal      | Disable                                  |
+| Data Size                | 8 Bits                                   |
+| First Bit                | MSB First                                |
+| Clock Polarity (CPOL)    | Low                                      |
+| Clock Phase (CPHA)       | 1 Edge                                   |
+| Prescaler                | Start with a low SCK, for example 10 MHz |
 
-100 MHz is more than the maximum SCK in the datasheet of the controller.
-Use a lower SCK if the panel does not show a correct image.
+Set the DC, CS, RST and BL pins to "GPIO_Output".
 
-## Hardware
+### 3. Add the files
 
-The example project uses these parts:
+1. Copy the folder `Lib/st7789_hal` into your project.
+2. Add these files to the source files of your project: `st7789_hal.c`,
+   `st7789_hal_gfx.c` and `st7789_hal_font5x7.c`.
+3. Add the folder to the include paths of your project.
 
-- A NUCLEO-H753ZI board
-- The 2" IPS display module from Waveshare (240x320 pixels, ST7789V)
+With CMake, as an alternative to steps 2 and 3, add these lines to your
+`CMakeLists.txt`:
 
-Connect the display module to the board as this table shows:
+```cmake
+add_subdirectory(Lib/st7789_hal)
+target_link_libraries(${CMAKE_PROJECT_NAME} st7789_hal)
+```
 
-| Display module | Board pin | Function        |
-|----------------|-----------|-----------------|
-| VCC            | 3V3       | Supply voltage  |
-| GND            | GND       | Ground          |
-| DIN            | PB5       | SPI1 MOSI       |
-| CLK            | PA5       | SPI1 SCK        |
-| CS             | PD14      | CS              |
-| DC             | PD15      | DC              |
-| RST            | PF3       | Reset           |
-| BL             | PG12      | Backlight       |
+### 4. Draw on the screen
 
-Keep the wires short. Long wires can cause incorrect data at a high SCK.
+Call this function from `main()`, after `MX_SPI1_Init()`:
 
-## How to compile the example project
+```c
+#include "main.h"
+#include "st7789_hal.h"
 
-These tools are necessary:
+extern SPI_HandleTypeDef hspi1;      /* the SPI from STM32CubeMX */
+static ST7789HAL_Handle lcd;
 
-- GCC for Arm (`arm-none-eabi-gcc`)
-- CMake (3.22 minimum)
-- Ninja
-- STM32CubeProgrammer, to write the firmware to the board
+void App_Start(void)
+{
+  ST7789HAL_Config config = {
+    .hspi = &hspi1,
+    .dc_port = GPIOD,  .dc_pin = GPIO_PIN_15,
+    .cs_port = GPIOD,  .cs_pin = GPIO_PIN_14,
+    .rst_port = GPIOF, .rst_pin = GPIO_PIN_3,
+    .bl_port = GPIOG,  .bl_pin = GPIO_PIN_12,
+    .width = 240, .height = 320,
+    .invert_colors = 1,
+  };
 
-STM32CubeCLT contains all these tools.
+  if (ST7789HAL_Init(&lcd, &config) != ST7789HAL_OK)
+  {
+    return;                          /* the configuration is not correct */
+  }
+
+  ST7789HAL_FillScreen(&lcd, ST7789HAL_BLUE);
+  ST7789HAL_DrawString(&lcd, 10, 10, "Hello", ST7789HAL_WHITE,
+                       ST7789HAL_BLUE, 2);
+  ST7789HAL_FillCircle(&lcd, 120, 160, 40, ST7789HAL_YELLOW);
+}
+```
+
+Change these fields of `config` for your hardware:
+
+| Field                  | Value to write                                                                                     |
+|------------------------|----------------------------------------------------------------------------------------------------|
+| `hspi`                 | The SPI handle that connects to the display                                                        |
+| `dc_port`, `dc_pin`    | The pin that connects to DC                                                                        |
+| `cs_port`, `cs_pin`    | The pin that connects to CS. Write `NULL` and 0 if CS connects to GND.                             |
+| `rst_port`, `rst_pin`  | The pin that connects to RST. Write `NULL` and 0 if you have no reset pin.                         |
+| `bl_port`, `bl_pin`    | The pin that connects to BL. Write `NULL` and 0 if you have no backlight pin.                      |
+| `width`, `height`      | The dimensions of your panel in portrait, for example 240 and 320                                  |
+| `x_offset`, `y_offset` | 0 for 240x320 panels. Smaller panels frequently have an offset, for example 52 and 40 for 135x240. |
+| `invert_colors`        | 1 for most IPS panels. Change it if white shows as black.                                          |
+| `bgr_order`            | Set it to 1 if red shows as blue.                                                                  |
+| `use_dma`              | Set it to 1 to use the DMA (refer to the README of the library).                                   |
+
+### 5. If the screen shows no image
+
+| Problem                                           | Correction                                                                                  |
+|---------------------------------------------------|---------------------------------------------------------------------------------------------|
+| The backlight is off                              | Examine the BL pin and the VCC pin.                                                         |
+| The backlight is on, but there is no image        | Examine the DC, DIN and CLK wires. Decrease the SCK.                                        |
+| White shows as black                              | Change `invert_colors`.                                                                     |
+| Red shows as blue                                 | Change `bgr_order`.                                                                         |
+| The image has an offset or noise at an edge       | Set `width`, `height`, `x_offset` and `y_offset` for your panel.                            |
+| `ST7789HAL_Init()` does not return `ST7789HAL_OK` | Make sure that the SPI has 8 data bits. Make sure that `hspi` and `dc_port` are not `NULL`. |
+
+For all the functions, the DMA and the errors, refer to
+[`Lib/st7789_hal/README.md`](Lib/st7789_hal/README.md).
+
+## How to start with the fast library
+
+The fast library is for the STM32H7. It uses the registers of SPI1 and
+DMA1 Stream 0 directly. Thus, more steps are necessary than for the HAL
+library.
+
+1. Copy the folder `Lib/st7789` into your project.
+2. Add the `.c` files of the folder and `port/st7789_port_stm32h7.c` to the
+   source files of your project.
+3. Do the steps in "Necessary conditions for the STM32H7 port" in
+   [`Lib/st7789/README.md`](Lib/st7789/README.md).
+4. Call the library from your application:
+
+```c
+#include "st7789.h"
+
+void App_Start(void)                 /* call it after MX_SPI1_Init() */
+{
+  ST7789_Init();
+  ST7789_FillScreen(ST7789_BLACK);
+  ST7789_DrawString(10, 10, "Hello", ST7789_WHITE, ST7789_BLACK, 2);
+}
+```
+
+The example project in this repository is a complete project with this
+library. You can use it as the start of your project.
+
+## Example project for the NUCLEO-H753ZI
+
+The repository is also a complete project for a NUCLEO-H753ZI board with
+the 2" IPS display module from Waveshare (240x320 pixels).
+
+### Wires
+
+| Pin on the display module | Pin on the NUCLEO-H753ZI | Signal       |
+|---------------------------|--------------------------|--------------|
+| VCC                       | 3V3                      | 3.3 V supply |
+| GND                       | GND                      | Ground       |
+| DIN                       | PB5                      | SPI1 MOSI    |
+| CLK                       | PA5                      | SPI1 SCK     |
+| CS                        | PD14                     | CS           |
+| DC                        | PD15                     | DC           |
+| RST                       | PF3                      | Reset        |
+| BL                        | PG12                     | Backlight    |
+
+Keep the wires short, because the SCK of this project is 100 MHz.
+
+### Tools
+
+Install STM32CubeCLT. It contains all the necessary tools: GCC for Arm,
+CMake, Ninja and STM32CubeProgrammer.
+
+### Compile and write the firmware
 
 1. Get the repository:
 
@@ -124,12 +229,8 @@ STM32CubeCLT contains all these tools.
    cd ST7789V_Display_Driver_for_STM32
    ```
 
-3. Make the CMake configuration:
-
-   ```bash
-   cmake --preset Release
-   ```
-
+3. Make the CMake configuration. Use one of the commands from the table
+   below.
 4. Compile the project:
 
    ```bash
@@ -137,128 +238,80 @@ STM32CubeCLT contains all these tools.
    ```
 
 5. Connect the USB connection of the ST-LINK to the PC.
-
 6. Write the firmware to the board:
 
    ```bash
    STM32_Programmer_CLI -c port=SWD -w build/Release/Nucleo-H753DisplayTest.elf -v -rst
    ```
 
-The firmware sends its results to the ST-LINK virtual COM port. The speed
-is 115200 bits in each second, and the format is 8N1.
+Select the command for step 3 from this table:
 
-### CMake values
+| Firmware                                        | Command for step 3                                                                      |
+|-------------------------------------------------|-----------------------------------------------------------------------------------------|
+| The stress test of the fast library             | `cmake --preset Release`                                                                |
+| The scenes of the HAL library, with DMA         | `cmake --preset Release -DLCD_LIBRARY=st7789_hal`                                       |
+| The scenes of the HAL library, without DMA      | `cmake --preset Release -DLCD_LIBRARY=st7789_hal -DHAL_DEMO_USE_DMA=OFF`                |
+| The benchmark with the fast library             | `cmake --preset Release -DLCD_BENCH=ON`                                                 |
+| The benchmark with the HAL library, with DMA    | `cmake --preset Release -DLCD_BENCH=ON -DLCD_LIBRARY=st7789_hal`                        |
+| The benchmark with the HAL library, without DMA | `cmake --preset Release -DLCD_BENCH=ON -DLCD_LIBRARY=st7789_hal -DHAL_DEMO_USE_DMA=OFF` |
 
-You can add these values to the command of step 3, for example
-`cmake --preset Release -DLCD_LIBRARY=st7789_hal`.
+The firmware also sends its results as text to the ST-LINK virtual COM
+port. To read them, open the COM port on the PC at 115200 bits in each
+second (8N1 format).
 
-| Value                      | Default | Effect                                                         |
-|----------------------------|---------|----------------------------------------------------------------|
-| `-DLCD_LIBRARY=st7789`     | Yes     | The firmware uses `Lib/st7789` and shows the stress test.      |
-| `-DLCD_LIBRARY=st7789_hal` | No      | The firmware uses `Lib/st7789_hal` and shows its scenes.       |
-| `-DHAL_DEMO_USE_DMA=OFF`   | `ON`    | `Lib/st7789_hal` does not use the DMA.                         |
-| `-DLCD_BENCH=ON`           | `OFF`   | The firmware does the benchmark with the library that you set. |
+## Speed
 
-## How to add a library to your project
+The table shows how many times in one second each library does an
+operation. A larger number is better. The results are from the benchmark
+on the NUCLEO-H753ZI board at an SCK of 100 MHz.
 
-### `Lib/st7789_hal` (all STM32 families)
+| Operation                                | Fast library | HAL library with DMA | HAL library without DMA |
+|------------------------------------------|-------------:|---------------------:|------------------------:|
+| Fill the full screen (240x320 pixels)    |           81 |                   80 |                      34 |
+| Draw a full screen image                 |           80 |                   67 |                      32 |
+| Fill a rectangle of random dimensions    |        3,055 |                2,814 |                   1,240 |
+| Draw a string with a background color    |        1,618 |                1,283 |                     625 |
+| Draw a string without a background color |        4,169 |                1,068 |                   1,060 |
+| Draw a line                              |        5,154 |                1,335 |                   1,348 |
+| Draw a circle                            |        3,698 |                1,312 |                   1,080 |
+| Draw a triangle                          |        1,064 |                  396 |                     343 |
 
-1. Copy the folder `Lib/st7789_hal` into your project.
-2. Add the `.c` files of the folder to the source files of your project.
-   With CMake, use
-   `add_subdirectory()` and the target `st7789_hal`.
-3. In STM32CubeMX, set the SPI to 8 data bits and SPI mode 0.
-4. Call the library from your application:
+The results show these points:
 
-```c
-#include "st7789_hal.h"
+- For full screens and large rectangles, the two libraries have almost the
+  same speed with DMA. The SPI bus is the limit.
+- For small shapes, the fast library is approximately three to four times
+  faster than the HAL library.
+- The DMA makes the HAL library approximately two times faster for large
+  areas. For small shapes, the DMA does not change the speed.
 
-extern SPI_HandleTypeDef hspi1;
-static ST7789HAL_Handle lcd;
-
-void App_Start(void)
-{
-  ST7789HAL_Config config = {
-    .hspi = &hspi1,
-    .dc_port = LCD_DC_GPIO_Port,   .dc_pin = LCD_DC_Pin,
-    .cs_port = LCD_CS_GPIO_Port,   .cs_pin = LCD_CS_Pin,
-    .rst_port = LCD_RST_GPIO_Port, .rst_pin = LCD_RST_Pin,
-    .bl_port = LCD_BL_GPIO_Port,   .bl_pin = LCD_BL_Pin,
-    .width = 240, .height = 320,
-    .invert_colors = 1,
-  };
-
-  if (ST7789HAL_Init(&lcd, &config) == ST7789HAL_OK)
-  {
-    ST7789HAL_FillScreen(&lcd, ST7789HAL_BLUE);
-    ST7789HAL_DrawString(&lcd, 10, 10, "Hello", ST7789HAL_WHITE,
-                         ST7789HAL_BLUE, 2);
-  }
-}
-```
-
-For the DMA and the other functions, refer to
-[`Lib/st7789_hal/README.md`](Lib/st7789_hal/README.md).
-
-### `Lib/st7789` (STM32H7)
-
-1. Copy the folder `Lib/st7789` into your project.
-2. Add the `.c` files and the port file to the source files of your
-   project. With CMake, use
-   `add_subdirectory()` and the target `st7789`.
-3. Make sure that your project agrees with the necessary conditions for the
-   port. The README file of the library gives them.
-4. Call the library from your application:
-
-```c
-#include "st7789.h"
-
-void App_Start(void)
-{
-  ST7789_Init();
-  ST7789_FillScreen(ST7789_BLACK);
-  ST7789_DrawString(10, 10, "Hello", ST7789_WHITE, ST7789_BLACK, 2);
-}
-```
-
-For the framebuffer mode, the linker script and a port for a different MCU,
-refer to [`Lib/st7789/README.md`](Lib/st7789/README.md).
+100 MHz is more than the maximum SCK in the datasheet of the controller.
+If the panel does not show a correct image, use a lower SCK.
 
 ## Tests
 
-`Lib/st7789_hal` has a test for a PC. The test uses code that
-simulates the controller. Thus, the hardware is not necessary. GCC for the
-PC, CMake and Bash are necessary.
+The HAL library has tests that you can do on a PC, without the hardware.
+The tests use code that simulates the controller. GCC for the PC, CMake
+and Bash are necessary.
 
 ```bash
 bash Lib/st7789_hal/test/run_tests.sh
 ```
 
-The script does 17 tests in each of 6 configurations. The time is
-approximately 100 seconds.
+The time for the tests is approximately 100 seconds. The last line shows
+`RESULT: PASS` if all the tests are correct.
 
-## Structure of the repository
+## Folders
 
-| Path                         | Contents                                              |
-|------------------------------|-------------------------------------------------------|
-| `Lib/st7789/`                | The fast library and its STM32H7 port                 |
-| `Lib/st7789_hal/`            | The HAL library and its test for a PC                 |
-| `Core/`                      | The example application (the scenes and the benchmark) |
-| `Drivers/`                   | The HAL and the CMSIS files from ST and Arm           |
-| `cmake/`, `CMakeLists.txt`   | The CMake files                                       |
-| `Nucleo-H753DisplayTest.ioc` | The STM32CubeMX project                               |
-| `Docs/`                      | The glossary and the checker for STE                  |
-
-## Simplified Technical English
-
-The documents and the comments in the code use ASD-STE100 Simplified
-Technical English (STE), issue 9. `Docs/ste-glossary.md` gives the
-technical nouns and the technical verbs of this repository.
-
-The STE specification is not in this repository, because ASD has the
-copyright. You can get it from ASD. The checker
-(`Docs/ste_check.py`) reads a text copy of the specification from
-`Docs/ASD-STE100_ISSUE9.txt`.
+| Folder or file               | Contents                                          | Is it necessary for your project? |
+|------------------------------|---------------------------------------------------|-----------------------------------|
+| `Lib/st7789_hal/`            | The HAL library, its README and its tests         | Yes, if you use the HAL library   |
+| `Lib/st7789/`                | The fast library, its README and its STM32H7 port | Yes, if you use the fast library  |
+| `Core/`                      | The example application for the NUCLEO-H753ZI     | No. It is an example.             |
+| `Drivers/`                   | The HAL and the CMSIS files from ST and Arm       | No. Your project has its HAL.     |
+| `cmake/`, `CMakeLists.txt`   | The CMake files of the example project            | No                                |
+| `Nucleo-H753DisplayTest.ioc` | The STM32CubeMX file of the example project       | No                                |
+| `Docs/`                      | The glossary of the terms that the documents use  | No                                |
 
 ## License
 
