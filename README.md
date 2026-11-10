@@ -311,7 +311,6 @@ The time for the tests is approximately 100 seconds. The last line shows
 | `Drivers/`                   | The HAL and the CMSIS files from ST and Arm       | No. Your project has its HAL.     |
 | `cmake/`, `CMakeLists.txt`   | The CMake files of the example project            | No                                |
 | `Nucleo-H753DisplayTest.ioc` | The STM32CubeMX file of the example project       | No                                |
-| `Docs/`                      | The glossary of the terms that the documents use  | No                                |
 
 ## License
 
