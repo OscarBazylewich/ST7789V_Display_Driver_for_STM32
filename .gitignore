@@ -1,0 +1,9 @@
+# CMake build output (recreate with: cmake --preset Debug)
+build/
+
+# Editor and OS clutter
+.vscode/*.log
+.cache/
+*.swp
+Thumbs.db
+.DS_Store
